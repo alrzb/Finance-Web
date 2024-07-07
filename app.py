@@ -106,8 +106,19 @@ def logout():
 @login_required
 def quote():
     """Get stock quote."""
-    return apology("TODO")
 
+    if request.method == 'POST':
+        quote = request.form.get('symbol')
+        if not quote:
+            return apology('missing symbol')
+        quote = lookup(quote)
+        if not quote:
+            return apology('invalid symbol')
+        else:
+            return render_template('quoted.html', quote=quote)
+
+    else:
+        return render_template("quote.html")
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
@@ -126,17 +137,17 @@ def register():
 
         # Ensure username and password were submitted
         if not username or not password:
-            return apology('username/passowrd cannot be empty!', 400)
+            return apology('username/passowrd cannot be empty!', 403)
 
         # Ensure that password and confirmation are the same
         elif password != confirmation:
-            return apology('passwords do not match', 400)   
+            return apology('passwords do not match', 403)   
         
         try:
             db.execute('INSERT INTO users (username, hash) VALUES (?, ?)',
                         username, generate_password_hash(password))
         except ValueError:
-            return apology('username already exists!', 400)
+            return apology('username already exists!', 403)
 
         # Redirect user to the homepage
         return redirect("/")
