@@ -1,7 +1,7 @@
 import os
 
 from cs50 import SQL
-from flask import Flask, flash, redirect, render_template, request, session, flash, url_for
+from flask import Flask, flash, redirect, render_template, request, session, flash
 from flask_session import Session
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -35,20 +35,23 @@ def after_request(response):
 @login_required
 def index():
     """Show portfolio of stocks"""
+    try:
+        stocks = db.execute('SELECT symbol, SUM(shares) AS total_shares FROM transactions WHERE user_id = ? GROUP BY symbol HAVING total_shares > 0', session['user_id'])
 
-    stocks = db.execute('SELECT symbol, SUM(shares) AS total_shares FROM transactions WHERE user_id = ? GROUP BY symbol HAVING SUM(shares) > 0', session['user_id'])
+        total = 0
+        for stock in stocks:
+            # Add total stock price to the data based on the current price from YAHOO finance
+            stock['current_price'] = lookup(stock['symbol'])['price']
+            total += stock['current_price'] * stock['total_shares']
 
-    total = 0
-    for stock in stocks:
-        # Add total stock price to the data based on the current price from YAHOO finance
-        stock['current_price'] = lookup(stock['symbol'])['price']
-        total += stock['current_price'] * stock['total_shares']
+        current_cash = db.execute('SELECT cash FROM users WHERE id = ?', session['user_id'])[0].get('cash')
+        current_cash = float(current_cash)
 
-    current_cash = db.execute('SELECT cash FROM users WHERE id = ?', session['user_id'])[0].get('cash')
-    current_cash = float(current_cash)
-
-    return render_template('index.html', cash=current_cash, stocks=stocks, total=total)
-    
+        return render_template('index.html', cash=current_cash, stocks=stocks, total=total)
+   
+    except:
+        session.clear()
+        return redirect("/")
     
 
 @app.route("/buy", methods=["GET", "POST"])
@@ -72,7 +75,11 @@ def buy():
         current_cash = db.execute('SELECT cash FROM users WHERE id = ?', session['user_id'])[0].get('cash')
         current_cash = float(current_cash) 
         
-        shares = int(shares)
+        try:
+            shares = int(shares)
+        except:
+            return apology('bad input')
+        
         if shares <= 0 :
             return apology('number of shares should be positive')
         
@@ -87,7 +94,7 @@ def buy():
                    current_cash - purchase, session['user_id'])
         
         db.execute('INSERT INTO transactions(user_id, symbol, shares, price) VALUES(?, ?, ?, ?)',
-                   session['user_id'], symbol, shares, purchase)
+                   session['user_id'], stock['symbol'], shares, stock['price'])
         
         flash('Bought!')
         return redirect('/')
@@ -97,7 +104,11 @@ def buy():
 @login_required
 def history():
     """Show history of transactions"""
-    db.execute('')
+
+    transactions = db.execute('SELECT symbol, shares, price, timestamp FROM transactions WHERE user_id = ?', session['user_id'])
+    print('salaaaaaam', transactions)
+    print(session['user_id'])
+    return render_template('history.html', transactions=transactions)
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -211,9 +222,43 @@ def register():
 @app.route("/sell", methods=["GET", "POST"])
 @login_required
 def sell():
-    pass
-        
+    if request.method == 'GET':
+        # Showing current stocks
+        stocks = db.execute('SELECT symbol FROM transactions WHERE user_id = ? GROUP BY symbol HAVING SUM(shares) > 0', session['user_id'])
+        return render_template('sell.html', stocks=stocks)
+    else:
 
+        stocks = db.execute('SELECT symbol, SUM(shares) AS total_shares FROM transactions WHERE user_id = ? GROUP BY symbol HAVING total_shares > 0', session['user_id'])
+        symbol = request.form.get('symbol')
+        shares = request.form.get('shares')
+
+        symbols_dict = {stock.get('symbol'): stock.get('total_shares') for stock in stocks}
+
+        # Check user input
+        if not symbol or not shares:
+            return apology('fill the blanks')
+        
+        elif symbol not in list(symbols_dict.keys()):
+            return apology('symbol is not available')
+        
+        try:
+            shares = int(shares)
+        except:
+            return apology('bad input')
+        
+        if shares <= 0 :
+            return apology("you can't sell a non-positive amount")
+        
+        elif shares > symbols_dict.get(symbol):
+            return apology("not enough shares")
+        
+        
+        stock = lookup(symbol)
+        db.execute('INSERT INTO transactions(user_id, symbol, shares, price) VALUES(?, ?, ?, ?)', session['user_id'], stock['symbol'], -shares, stock['price'])
+        db.execute('UPDATE users SET cash = cash + ? WHERE id = ?', stock['price'] * shares, session['user_id'])
+
+        flash('Sold!')
+        return redirect('/')
 
 if __name__ == '__main__':
     app.run(debug=True)
