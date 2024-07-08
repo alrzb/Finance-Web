@@ -1,7 +1,7 @@
 import os
 
 from cs50 import SQL
-from flask import Flask, flash, redirect, render_template, request, session
+from flask import Flask, flash, redirect, render_template, request, session, flash, url_for
 from flask_session import Session
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -21,7 +21,7 @@ Session(app)
 # Configure CS50 Library to use SQLite database
 db = SQL("sqlite:///finance.db")
 
-
+# Clear Cache
 @app.after_request
 def after_request(response):
     """Ensure responses aren't cached"""
@@ -35,22 +35,69 @@ def after_request(response):
 @login_required
 def index():
     """Show portfolio of stocks"""
-    return apology("TODO")
 
+    stocks = db.execute('SELECT symbol, SUM(shares) AS total_shares FROM transactions WHERE user_id = ? GROUP BY symbol HAVING SUM(shares) > 0', session['user_id'])
+
+    total = 0
+    for stock in stocks:
+        # Add total stock price to the data based on the current price from YAHOO finance
+        stock['current_price'] = lookup(stock['symbol'])['price']
+        total += stock['current_price'] * stock['total_shares']
+
+    current_cash = db.execute('SELECT cash FROM users WHERE id = ?', session['user_id'])[0].get('cash')
+    current_cash = float(current_cash)
+
+    return render_template('index.html', cash=current_cash, stocks=stocks, total=total)
+    
+    
 
 @app.route("/buy", methods=["GET", "POST"])
 @login_required
 def buy():
     """Buy shares of stock"""
-    return apology("TODO")
 
+    if request.method == "GET":
+        return render_template('buy.html')
+    
+    else:
 
+        # Check user inputs
+        symbol = request.form.get('symbol')
+        shares = request.form.get('shares')
+
+        if not symbol or not shares:
+            return apology("fill the blanks")
+        
+        stock = lookup(symbol)
+        current_cash = db.execute('SELECT cash FROM users WHERE id = ?', session['user_id'])[0].get('cash')
+        current_cash = float(current_cash) 
+        
+        shares = int(shares)
+        if shares <= 0 :
+            return apology('number of shares should be positive')
+        
+        elif stock is None:
+            return apology('invalid symbol')
+        
+        elif current_cash < (purchase := shares * stock['price']):
+            # Check if user has enough cash
+            return apology("cant't afford")
+
+        db.execute('UPDATE users SET cash = ? WHERE id = ?',
+                   current_cash - purchase, session['user_id'])
+        
+        db.execute('INSERT INTO transactions(user_id, symbol, shares, price) VALUES(?, ?, ?, ?)',
+                   session['user_id'], symbol, shares, purchase)
+        
+        flash('Bought!')
+        return redirect('/')
+
+        
 @app.route("/history")
 @login_required
 def history():
     """Show history of transactions"""
-    return apology("TODO")
-
+    db.execute('')
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -109,9 +156,12 @@ def quote():
 
     if request.method == 'POST':
         quote = request.form.get('symbol')
+        # Make sure that quote is not empty
         if not quote:
             return apology('missing symbol')
+        
         quote = lookup(quote)
+        # Make sure that symbol is valid
         if not quote:
             return apology('invalid symbol')
         else:
@@ -149,8 +199,8 @@ def register():
         except ValueError:
             return apology('username already exists!', 403)
 
-        # Redirect user to the homepage
-        return redirect("/")
+        # Redirect user to the login page
+        return redirect("/login")
 
     else:
         return render_template("register.html")
@@ -161,8 +211,9 @@ def register():
 @app.route("/sell", methods=["GET", "POST"])
 @login_required
 def sell():
-    """Sell shares of stock"""
-    return apology("TODO")
+    pass
+        
+
 
 if __name__ == '__main__':
     app.run(debug=True)
