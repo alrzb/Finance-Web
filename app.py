@@ -53,7 +53,29 @@ def index():
         session.clear()
         return redirect("/")
     
+@app.route("/wallet", methods=["GET", "POST"])
+@login_required
+def wallet():
+    """Increase credit balance"""
 
+    if request.method == "GET":
+        return(render_template('wallet.html'))
+    
+    else:
+        
+        amount = request.form.get('amount')
+        try:
+            amount = float(amount)
+            if not amount or float(amount) <= 0:
+                return apology('please enter a positive amount')
+        except:
+            return apology('bad input')
+        
+        db.execute("UPDATE users SET cash = cash + ? WHERE id = ?", amount, session['user_id'])
+
+        flash(f'Balance successfully increased by ${amount}')
+        return redirect("/")
+        
 @app.route("/buy", methods=["GET", "POST"])
 @login_required
 def buy():
@@ -142,6 +164,7 @@ def login():
         session["user_id"] = rows[0]["id"]
 
         # Redirect user to home page
+        flash("Welcome!")
         return redirect("/")
 
     # User reached route via GET (as by clicking a link or via redirect)
@@ -198,19 +221,20 @@ def register():
 
         # Ensure username and password were submitted
         if not username or not password:
-            return apology('username/passowrd cannot be empty!', 403)
+            return apology('username/passowrd cannot be empty!', 400)
 
         # Ensure that password and confirmation are the same
         elif password != confirmation:
-            return apology('passwords do not match', 403)   
+            return apology('passwords do not match', 400)   
         
         try:
             db.execute('INSERT INTO users (username, hash) VALUES (?, ?)',
                         username, generate_password_hash(password))
         except ValueError:
-            return apology('username already exists!', 403)
+            return apology('username already exists!', 400)
 
         # Redirect user to the login page
+        flash('Successfuly Registered!')
         return redirect("/login")
 
     else:
